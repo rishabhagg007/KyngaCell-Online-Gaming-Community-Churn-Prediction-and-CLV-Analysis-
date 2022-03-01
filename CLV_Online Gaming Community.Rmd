@@ -1,0 +1,141 @@
+---
+title: "CLV_online Gaming Community"
+output: html_document
+---
+
+
+
+```{r}
+library(readxl)
+library(Hmisc)
+library(MASS)
+library(caret)
+library(regclass)
+library(ISLR)
+library(boot)
+library(vcd)
+library(pROC)
+library (ROCR)
+library(dplyr)
+library(tidyverse)
+```
+
+## Difference in differences (DiD) Regression Model to  determine whether Campaigns have significant impact on Revenue.
+```{r}
+setwd("C:/Users/dell/Downloads/.")
+
+KyngaCell_df<-read_excel("C:/Rishabh/KyngaCell.xlsx",sheet = 4)
+
+
+data_filtered <- KyngaCell_df[,c(1,2,3,4,6)]
+data_stacked <- pivot_longer(data_filtered, cols = c(3,4), names_to = "Period", values_to = "Revenue")
+Revenue<-data_stacked$Revenue
+Join<-data_stacked$`Joined?`
+Before<-ifelse(data_stacked$Period == "Month Before", 1, 0)
+After<-ifelse(data_stacked$Period == "Month After", 1, 0)
+Campaign <- data_stacked$`Campaign/Organic`
+
+
+model<-lm(Revenue ~ Join + After + Campaign+ Join:After )
+summary(model)
+
+
+```
+
+### Interpretation for effect of Campaign on Revenue.
+#### #Since p -value is insignificant for the  expalanatory variable Campaign , we do not have sufficient evidence to conclude whether there is significant impact on revenue or customers joining the online community due to Campaign.
+
+
+
+<br>
+
+
+## Logistics Regression Model
+#### #Determining Probability of Churn of Consumer
+
+```{r}
+
+Churn <- KyngaCell_df$`Churned at 3 months`
+ID <- KyngaCell_df$`Customer ID`
+Age <- KyngaCell_df$`Customer Age with Firm at time of launching the online community`
+Spend <- KyngaCell_df$`Average Spend Last 3 months of Life with the firm`
+Join <- KyngaCell_df$`Joined?`
+Campaign <- KyngaCell_df$`Campaign/Organic`
+mylogit<-glm(Churn~Join+Age+Spend+Campaign, data=KyngaCell_df, family=binomial(link="logit"))
+summary(mylogit) 
+confint(mylogit) 
+AIC(mylogit)
+
+
+preddata<-with(KyngaCell_df,data.frame(ID,Join,Age,Spend,Campaign))
+probchurn<-predict(mylogit,newdata=preddata,type="response")
+predchurn<-ifelse(probchurn > 0.5, 1,0)
+missclass<-predchurn!=Churn
+misclasserror<-mean(predchurn!=Churn)		
+print(paste('Accuracy',1-misclasserror))
+
+confMat2<-confusionMatrix(data = as.factor(predchurn),reference = as.factor(Churn),positive = "1")
+confMat2
+
+finaldata<-cbind(KyngaCell_df,probchurn,predchurn,missclass)
+View(finaldata)
+
+```
+
+## Computing the Retention rate and CLV with Campaign
+```{r}
+
+campaign <- subset(finaldata, finaldata$`Campaign/Organic` == 1)
+organic <- subset(finaldata, finaldata$`Campaign/Organic` == 0)
+churn_campaign <- mean(campaign$probchurn)
+retention_campaign <- 1 - churn_campaign
+retention_campaign
+churn_organic <- mean (organic$probchurn)
+ret_organic <- 1 - churn_organic
+ret_organic
+
+
+
+#####Computing CLV new for Campaign and organic
+
+AC <- 0
+i <- 0.1
+
+m1_campaign <- 0.5 * campaign$`Average Spend Last 3 months of Life with the firm`
+m1_organic <- 0.5 * organic$`Average Spend Last 3 months of Life with the firm`
+
+
+
+L_campaign <- 1/(1-retention_campaign)
+L_organic <- 1/(1-ret_organic)
+
+
+Basic_CLV_campaign <- m1_campaign * L_campaign - AC
+mean(Basic_CLV_campaign)
+
+Basic_CLV_organic <- m1_organic * L_organic - AC
+mean(Basic_CLV_organic)
+
+
+
+#CLV Lifetime
+
+CLV_campaign <- m1_campaign * ((1 + i) / (1 + i - retention_campaign))
+
+CLV_organic <- m1_organic * ((1 + i) / (1 + i - ret_organic))
+
+mean(CLV_campaign)
+mean(CLV_organic)
+
+
+# Checking if there is significant difference in CLV values after Campaign
+
+t.test(CLV_campaign, CLV_organic, alternative = "two.sided")
+
+
+
+
+```
+##### #Since p-value is insignificant for  we can conclude that there is no much difference in CLV values of the customers who joined through Campaign or Organic.
+
+
